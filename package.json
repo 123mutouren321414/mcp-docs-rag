@@ -31,11 +31,16 @@
   },
   "mcp": {
     "serverType": "docs-rag",
-    "apiKeyRequirements": ["GEMINI_API_KEY"],
+    "apiKeyRequirements": [
+      "GEMINI_API_KEY"
+    ],
     "environmentVariables": {
       "DOCS_PATH": "Path to documents directory"
     },
-    "capabilities": ["rag", "documentManagement"]
+    "capabilities": [
+      "rag",
+      "documentManagement"
+    ]
   },
   "scripts": {
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
@@ -50,6 +55,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "dotenv": "^16.4.7"
   }
 }

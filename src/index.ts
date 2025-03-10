@@ -41,7 +41,8 @@ if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
 }
 
 // Get docs path from environment variable, with fallback
-const DOCS_PATH = process.env.DOCS_PATH || path.join(process.env.HOME || process.env.USERPROFILE || '', 'docs');
+// エクスポート可能にするために変数をexportします
+export const DOCS_PATH = process.env.DOCS_PATH || path.join(process.env.HOME || process.env.USERPROFILE || '', 'docs');
 
 // Ensure docs directory exists
 if (!fs.existsSync(DOCS_PATH)) {
@@ -49,7 +50,7 @@ if (!fs.existsSync(DOCS_PATH)) {
 }
 
 // Ensure .indices directory exists
-const INDICES_PATH = path.join(DOCS_PATH, '.indices');
+export const INDICES_PATH = path.join(DOCS_PATH, '.indices');
 if (!fs.existsSync(INDICES_PATH)) {
   fs.mkdirSync(INDICES_PATH, { recursive: true });
 }
@@ -60,7 +61,7 @@ const indices: Record<string, { index: VectorStoreIndex, description: string }> 
 /**
  * Normalizes a repository name from its URL or path
  */
-function normalizeRepoName(repoUrl: string): string {
+export function normalizeRepoName(repoUrl: string): string {
   const parts = repoUrl.split('/');
   return parts[parts.length - 1].replace('.git', '');
 }
@@ -68,7 +69,7 @@ function normalizeRepoName(repoUrl: string): string {
 /**
  * Lists all available documents in the docs directory
  */
-async function listDocuments(): Promise<Array<{ id: string, name: string, path: string, description: string }>> {
+export async function listDocuments(): Promise<Array<{ id: string, name: string, path: string, description: string }>> {
   const documents: Array<{ id: string, name: string, path: string, description: string }> = [];
   
   const entries = fs.readdirSync(DOCS_PATH, { withFileTypes: true });
@@ -118,7 +119,7 @@ async function listDocuments(): Promise<Array<{ id: string, name: string, path: 
  * @param dirPath 対象ディレクトリのパス
  * @returns ドキュメントの配列
  */
-async function readDirectoryRecursively(dirPath: string): Promise<Document[]> {
+export async function readDirectoryRecursively(dirPath: string): Promise<Document[]> {
   const result: Document[] = [];
   const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
@@ -156,7 +157,7 @@ async function readDirectoryRecursively(dirPath: string): Promise<Document[]> {
  * Load and index a document
  * 存在しないドキュメントの場合は自動的に作成を試みる
  */
-async function loadDocument(documentId: string): Promise<VectorStoreIndex> {
+export async function loadDocument(documentId: string): Promise<VectorStoreIndex> {
   if (indices[documentId]?.index) {
     return indices[documentId].index;
   }
@@ -189,13 +190,17 @@ async function loadDocument(documentId: string): Promise<VectorStoreIndex> {
     documentItems = [new Document({ text, metadata: { name: document.id, source: document.path } })];
   }
   
-  // 一時的にGemini埋め込みモデルを設定
-  const originalEmbedModel = Settings.embedModel;
-  // GeminiEmbeddingはデフォルトでgemini-proモデルを使用
+  // Gemini埋め込みモデルを設定
   const geminiEmbed = new GeminiEmbedding();
   
-  // グローバル設定に設定
+  // Gemini LLMモデルを設定
+  const gemini = new Gemini({
+    model: GEMINI_MODEL.GEMINI_2_0_FLASH
+  });
+  
+  // グローバル設定に埋め込みモデルとLLMを設定（これをグローバルに保持）
   Settings.embedModel = geminiEmbed;
+  Settings.llm = gemini;
   
   // Create storage context
   const storageContext = await storageContextFromDefaults({
@@ -206,9 +211,6 @@ async function loadDocument(documentId: string): Promise<VectorStoreIndex> {
   const index = await VectorStoreIndex.fromDocuments(documentItems, {
     storageContext,
   });
-  
-  // 元の設定に戻す
-  Settings.embedModel = originalEmbedModel;
   
   // Save index for future use
   indices[documentId] = { 
@@ -225,7 +227,7 @@ async function loadDocument(documentId: string): Promise<VectorStoreIndex> {
  * @param subdirectory Optional specific subdirectory to sparse checkout
  * @param documentName Optional custom name for the document
  */
-async function cloneRepository(repoUrl: string, subdirectory?: string, documentName?: string): Promise<string> {
+export async function cloneRepository(repoUrl: string, subdirectory?: string, documentName?: string): Promise<string> {
   // Use custom document name if provided, otherwise normalize repo name
   const repoName = documentName || normalizeRepoName(repoUrl);
   const repoPath = path.join(DOCS_PATH, repoName);
@@ -263,7 +265,7 @@ async function cloneRepository(repoUrl: string, subdirectory?: string, documentN
  * @param fileUrl ダウンロードするファイルのURL
  * @param documentName ドキュメント名（ディレクトリ名として使用）
  */
-async function downloadFile(fileUrl: string, documentName: string): Promise<string> {
+export async function downloadFile(fileUrl: string, documentName: string): Promise<string> {
   // ドキュメント用のディレクトリを作成
   const docDir = path.join(DOCS_PATH, documentName);
   
@@ -492,9 +494,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const response = await queryEngine.query({
         query
       });
-      
-      // 元の設定に戻す
-      Settings.llm = originalLLM;
       
       return {
         content: [{
