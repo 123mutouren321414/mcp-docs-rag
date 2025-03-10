@@ -227,20 +227,15 @@ export async function loadDocument(documentId: string): Promise<VectorStoreIndex
  * @param subdirectory Optional specific subdirectory to sparse checkout
  * @param documentName Optional custom name for the document
  */
-export async function cloneRepository(repoUrl: string, subdirectory?: string, documentName?: string): Promise<string> {
+export async function cloneRepository(repoUrl: string, subdirectory?: string, documentName?: string): Promise<{ name: string; exists: boolean }> {
   // Use custom document name if provided, otherwise normalize repo name
   const repoName = documentName || normalizeRepoName(repoUrl);
   const repoPath = path.join(DOCS_PATH, repoName);
   
   // Check if repository already exists
   if (fs.existsSync(repoPath)) {
-    // Pull latest changes
-    await execAsync(`cd "${repoPath}" && git pull`);
-    
-    // If subdirectory is specified, make sure it's in the sparse-checkout
-    if (subdirectory) {
-      await execAsync(`cd "${repoPath}" && git sparse-checkout set ${subdirectory}`);
-    }
+    // Document already exists, don't update it
+    return { name: repoName, exists: true };
   } else {
     if (subdirectory) {
       // Clone with sparse-checkout for specific subdirectory
@@ -257,7 +252,7 @@ export async function cloneRepository(repoUrl: string, subdirectory?: string, do
     }
   }
   
-  return repoName;
+  return { name: repoName, exists: false };
 }
 
 /**
@@ -265,14 +260,17 @@ export async function cloneRepository(repoUrl: string, subdirectory?: string, do
  * @param fileUrl ダウンロードするファイルのURL
  * @param documentName ドキュメント名（ディレクトリ名として使用）
  */
-export async function downloadFile(fileUrl: string, documentName: string): Promise<string> {
+export async function downloadFile(fileUrl: string, documentName: string): Promise<{ name: string; exists: boolean }> {
   // ドキュメント用のディレクトリを作成
   const docDir = path.join(DOCS_PATH, documentName);
   
-  // ディレクトリが存在しない場合は作成
-  if (!fs.existsSync(docDir)) {
-    fs.mkdirSync(docDir, { recursive: true });
+  // ディレクトリが存在する場合は更新せずに通知
+  if (fs.existsSync(docDir)) {
+    return { name: documentName, exists: true };
   }
+  
+  // ディレクトリが存在しない場合は作成
+  fs.mkdirSync(docDir, { recursive: true });
   
   // ファイル名を取得（URLのパス部分の最後）
   const fileName = path.basename(fileUrl);
@@ -283,7 +281,7 @@ export async function downloadFile(fileUrl: string, documentName: string): Promi
   // ファイルをダウンロード
   await execAsync(`cd "${docDir}" && wget -O "index.txt" ${fileUrl}`);
   
-  return documentName;
+  return { name: documentName, exists: false };
 }
 
 /**
@@ -364,7 +362,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "list_documents",
-        description: "List all available documents in the DOCS_PATH directory",
+        description: "List all available documents in the DOCS_PATH directory. Always use this tool first to check if desired documents already exist before adding new ones.",
         inputSchema: {
           type: "object",
           properties: {}
@@ -521,10 +519,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error("Repository URL is required");
       }
       
-      const repoName = await cloneRepository(repositoryUrl, subdirectory, documentName);
+      const result = await cloneRepository(repositoryUrl, subdirectory, documentName);
       
-      // Prepare response message with appropriate details
-      let responseText = `Added git repository: ${repoName}`;
+      // If document already exists, inform the user without updating
+      if (result.exists) {
+        return {
+          content: [{
+            type: "text",
+            text: `Document '${result.name}' already exists. Please use list_documents to view existing documents.`
+          }]
+        };
+      }
+      
+      // Prepare response message for new document
+      let responseText = `Added git repository: ${result.name}`;
       
       if (subdirectory) {
         responseText += ` (sparse checkout of '${subdirectory}')`;  
@@ -554,12 +562,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error("Document name is required");
       }
       
-      const docName = await downloadFile(fileUrl, documentName);
+      const result = await downloadFile(fileUrl, documentName);
+      
+      // If document already exists, inform the user without updating
+      if (result.exists) {
+        return {
+          content: [{
+            type: "text",
+            text: `Document '${result.name}' already exists. Please use list_documents to view existing documents.`
+          }]
+        };
+      }
       
       return {
         content: [{
           type: "text",
-          text: `Added document '${docName}' with content from ${fileUrl}. The index will be created when you query this document for the first time.`
+          text: `Added document '${result.name}' with content from ${fileUrl}. The index will be created when you query this document for the first time.`
         }]
       };
     }
