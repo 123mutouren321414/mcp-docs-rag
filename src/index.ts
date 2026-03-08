@@ -21,7 +21,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { exec } from "child_process";
+import { execFile } from 'child_process';
 import { promisify } from "util";
 import {
   VectorStoreIndex,
@@ -33,7 +33,7 @@ import {
 } from "llamaindex";
 import { Gemini, GEMINI_MODEL, GeminiEmbedding } from "@llamaindex/google";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile)
 
 // GEMINI_API_KEYをGOOGLE_API_KEYにマッピング（ライブラリが自動的に取得するため）
 if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
@@ -239,16 +239,20 @@ export async function cloneRepository(repoUrl: string, subdirectory?: string, do
   } else {
     if (subdirectory) {
       // Clone with sparse-checkout for specific subdirectory
-      await execAsync(`mkdir -p "${repoPath}" && cd "${repoPath}" && \
-                      git init && \
-                      git remote add origin ${repoUrl} && \
-                      git config core.sparseCheckout true && \
-                      git config --local core.autocrlf false && \
-                      echo "${subdirectory}/*" >> .git/info/sparse-checkout && \
-                      git pull --depth=1 origin main || git pull --depth=1 origin master`);
+      await execFileAsync('mkdir', ['-p', repoPath]);    
+      await execFileAsync('git', ['init'], { cwd: repoPath });   
+      await execFileAsync('git', ['remote', 'add', 'origin', repoUrl], { cwd: repoPath });    
+      await execFileAsync('git', ['config', 'core.sparseCheckout', 'true'], { cwd: repoPath });  
+      await execFileAsync('git', ['config', '--local', 'core.autocrlf', 'false'], { cwd: repoPath });  
+         
+      const sparseCheckoutPath = path.join(repoPath, '.git', 'info', 'sparse-checkout');  
+      fs.writeFileSync(sparseCheckoutPath, `${subdirectory}/*\n`);    
+      
+      await execFileAsync('git', ['pull', '--depth=1', 'origin', 'main'], { cwd: repoPath })  
+        .catch(() => execFileAsync('git', ['pull', '--depth=1', 'origin', 'master'], { cwd: repoPath }));
     } else {
       // Normal clone for the entire repository
-      await execAsync(`cd "${DOCS_PATH}" && git clone ${repoUrl}`);
+      await execFileAsync('git', ['clone', repoUrl, repoName], { cwd: DOCS_PATH });
     }
   }
   
@@ -279,7 +283,7 @@ export async function downloadFile(fileUrl: string, documentName: string): Promi
   const filePath = path.join(docDir, 'index.txt');
   
   // ファイルをダウンロード
-  await execAsync(`cd "${docDir}" && wget -O "index.txt" ${fileUrl}`);
+  await execFileAsync('wget', ['-O', 'index.txt', fileUrl], { cwd: docDir });
   
   return { name: documentName, exists: false };
 }
